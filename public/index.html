@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>공용 회의시간 조회 (계명대학교 학생처)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2430;--mute:#6b7685;--line:#e3e7ec;--accent:#2f5fd0;--ok:#d9f2e1;--okink:#1d6b3a;--danger:#b3261e}
 *{box-sizing:border-box}
@@ -150,7 +149,7 @@ const DAYS=['월','화','수','목','금','토','일'];
 const COLORS=['#2f5fd0','#d0472f','#1f8a5b','#8a4fd0','#c98a00','#0e8aa6','#c2358a','#5a6b7d','#6b8e23','#b5532a'];
 let files=[];   // 사람: {id,ts,name,color,events:[{day,start,end,label}],status,error,visible,open,file}
 let groups=[];  // 그룹: {id,ts,name,members:[personId]}
-let mode='busy', sample=null, limits=null, vis={};
+let mode='busy', vis={};
 
 const $=s=>document.querySelector(s);
 const tm=s=>{const m=/^(\d{1,2}):(\d{2})/.exec(String(s||''));return m?(+m[1])*60+(+m[2]):null};
@@ -173,23 +172,53 @@ function armDelete(btn,label,fn){ // confirm() 대신 두 번 클릭
   };
 }
 
-/* ---------- 저장소 (공용 DB + 이 브라우저 보조 저장) ---------- */
-const OK_MSG='공용 명단과 동기화됨 · 같은 링크를 여는 모든 사람에게 보입니다',LOCAL_MSG='이 브라우저에만 저장 중입니다',ERR_MSG='저장 권한이 없습니다(보기 전용). 편집 권한이 필요해요.';
+/* ---------- 서버 API (Cloudflare Worker) ---------- */
+let pass=''; try{pass=localStorage.getItem('mts-pass')||''}catch(e){}
+let passP=null;
+function askPass(retry){
+  if(passP)return passP;
+  passP=new Promise(res=>{
+    const inp=h('input',{type:'password',placeholder:'접속 암호',autocomplete:'current-password',style:'width:100%;padding:10px;font-size:16px;border:1px solid var(--line);border-radius:8px;margin-bottom:12px'});
+    const go=()=>{const v=inp.value;if(!v)return;bg.remove();passP=null;res(v)};
+    inp.onkeydown=e=>{if(e.key==='Enter')go()};
+    const bg=h('div',{class:'dlgbg'},h('div',{class:'dlg'},
+      h('h3',{style:'color:var(--ink)'},'접속 암호'),
+      h('p',null,retry?'암호가 맞지 않습니다. 다시 입력해 주세요.':'학생처에서 공유한 접속 암호를 입력해 주세요. (이 브라우저에 저장됩니다)'),
+      inp,h('div',{class:'btns'},h('button',{class:'pri',onclick:go},'확인'))));
+    document.body.append(bg);setTimeout(()=>inp.focus(),50);
+  });
+  return passP;
+}
+async function api(method,path,body){
+  let retry=false;
+  for(let i=0;i<4;i++){
+    const r=await fetch(path,{method,headers:{'content-type':'application/json','x-passcode':pass},body:body===undefined?undefined:JSON.stringify(body)});
+    if(r.status===401){pass=await askPass(retry);retry=true;try{localStorage.setItem('mts-pass',pass)}catch(e){}continue}
+    if(!r.ok){let m='';try{m=(await r.json()).error}catch(e){}throw new Error(m||('서버 오류 ('+r.status+')'))}
+    return r.json();
+  }
+  throw new Error('암호 확인에 실패했습니다.');
+}
+
+/* ---------- 저장소 (서버 D1 + 이 브라우저 보조 저장) ---------- */
+const OK_MSG='공용 명단과 동기화됨 · 같은 주소를 여는 모든 사람에게 보입니다',LOCAL_MSG='서버에 연결할 수 없어 이 브라우저에만 저장 중입니다',ERR_MSG='서버 저장에 실패했습니다. 잠시 후 다시 시도됩니다.';
 function setSync(t,err){const e=$('#sync');e.textContent=t;e.style.color=err?'#b3261e':''}
 function makeStore(o){
-  const st={col:null,ids:new Set(),last:{},t:null};
-  st.save=()=>{try{o.ls()}catch(e){} if(st.col){clearTimeout(st.t);st.t=setTimeout(st.flush,400)}};
+  const st={ready:false,busy:false,dirty:false,ids:new Set(),last:{},t:null};
+  st.save=()=>{try{o.ls()}catch(e){} if(st.ready){st.dirty=true;clearTimeout(st.t);st.t=setTimeout(st.flush,300)}};
   st.flush=async()=>{
-    if(!st.col)return;
+    if(!st.ready||st.busy)return;
+    st.busy=true;
     try{
       const keep=new Set();
       for(const x of o.get().filter(o.persist)){
         keep.add(x.id);const c=o.clean(x),j=JSON.stringify(c);
-        if(st.last[x.id]!==j){await st.col.doc(o.prefix+x.id).set(c);st.last[x.id]=j;st.ids.add(x.id)}
+        if(st.last[x.id]!==j){await api('PUT',`/api/${o.name}/${encodeURIComponent(x.id)}`,c);st.last[x.id]=j;st.ids.add(x.id)}
       }
-      for(const id of [...st.ids])if(!keep.has(id)){await st.col.doc(o.prefix+id).delete();st.ids.delete(id);delete st.last[id]}
-      setSync(OK_MSG);
-    }catch(e){setSync(ERR_MSG,true)}
+      for(const id of [...st.ids])if(!keep.has(id)){await api('DELETE',`/api/${o.name}/${encodeURIComponent(id)}`);st.ids.delete(id);delete st.last[id]}
+      st.dirty=false;setSync(OK_MSG);
+    }catch(e){setSync(ERR_MSG+' ('+e.message+')',true);clearTimeout(st.t);st.t=setTimeout(st.flush,8000)}
+    finally{st.busy=false}
   };
   st.apply=arr=>{
     const arrIds=new Set(arr.map(x=>x.id));
@@ -201,13 +230,15 @@ function makeStore(o){
     st.ids=new Set(arrIds);st.last={};arr.forEach(x=>st.last[x.id]=JSON.stringify(o.clean(x)));
     o.after();
   };
-  st.init=async db=>{
-    const col=db.collection(o.name);
-    const toArr=snap=>{const docs=snap&&snap.docs?snap.docs:(Array.isArray(snap)?snap:[]);return docs.map(d=>typeof d.data==='function'?d.data():d).filter(x=>x&&x.id!=null&&o.valid(x))};
-    let first=true;
-    const cb=snap=>{st.apply(toArr(snap));if(first){first=false;st.col=col;st.save();setSync(OK_MSG)}};
-    if(col.onSnapshot)col.onSnapshot(cb,()=>setSync(LOCAL_MSG));
-    else cb(await Promise.race([col.get(),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),10000))]));
+  st.pull=async()=>{
+    if(st.busy||st.dirty)return;
+    const arr=await api('GET','/api/'+o.name);
+    if(st.busy||st.dirty)return;
+    st.apply(arr.filter(x=>x&&x.id!=null&&o.valid(x)));
+  };
+  st.init=async()=>{
+    await st.pull();st.ready=true;st.dirty=true;await st.flush();
+    setInterval(()=>{if(document.visibilityState==='visible')st.pull().catch(()=>{})},10000);
   };
   return st;
 }
@@ -252,11 +283,10 @@ try{vis=JSON.parse(localStorage.getItem('sched-vis-v1')||'{}')}catch(e){}
 try{files=JSON.parse(localStorage.getItem('sched-merge-v1')||'[]').map(f=>({...f,status:'done',open:false,visible:vis[f.id]!==false}))}catch(e){}
 try{groups=JSON.parse(localStorage.getItem('sched-groups-v1')||'[]')}catch(e){}
 if(dedupe()){people.save();grp.save()}
-setSync(LOCAL_MSG);
+setSync('서버와 연결 중…');
 (async()=>{
-  try{ const db=await claude.use('db'); if(db){await people.init(db);await grp.init(db)} }catch(e){setSync(LOCAL_MSG)}
+  try{ await people.init(); await grp.init(); setSync(OK_MSG) }catch(e){setSync(LOCAL_MSG+' ('+e.message+')',true)}
 })();
-(async()=>{ try{ sample=await claude.use('sample'); if(sample&&sample.limits) limits=await sample.limits(); }catch(e){sample=null} render(); })();
 
 /* ---------- 업로드·분석 ---------- */
 const drop=$('#drop'),fi=$('#fi');
@@ -304,30 +334,21 @@ async function handle(list){
   }
   if(skipped.length)notice(`이미 등록되어 있어 건너뜀: ${skipped.join(', ')}`);
 }
+const b64=blob=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(blob)});
 async function analyze(f){
   f.status='reading';f.error='';render();
   try{
-    if(!sample)throw new Error('Claude 분석 기능을 사용할 수 없습니다. claude.ai에서 링크를 열어 주세요.');
     const file=f.file,ext=(file.name.split('.').pop()||'').toLowerCase();
-    let images=[],text='';
-    if(['xlsx','xls','csv'].includes(ext))text=await excelToText(file);
-    else if(ext==='pdf')images=await pdfToImages(file);
-    else if(file.type.startsWith('image/')||['png','jpg','jpeg','webp','gif'].includes(ext))images=[await shrink(file)];
-    else throw new Error('지원하지 않는 형식입니다.');
-    if(images.length&&!(limits&&limits.images))throw new Error('이 화면에서는 이미지·PDF 분석을 쓸 수 없습니다. 엑셀로 올려 보세요.');
-    const prompt=`아래는 한 사람의 "주간 시간표"입니다. 요일별로 일정(수업·회의·근무·약속 등)이 있는 시간대를 모두 추출하세요.
-규칙:
-- 요일은 0=월,1=화,2=수,3=목,4=금,5=토,6=일 숫자.
-- 시간은 24시간제 "HH:MM". 교시만 있고 시각이 없으면 표에 적힌 교시별 시각을 따르고, 시각 정보가 전혀 없으면 1교시=09:00부터 50분 수업+10분 휴식으로 가정하세요.
-- 연속된 같은 일정은 하나로 합치고, label은 과목/일정명(짧게, 없으면 "")으로 하세요.
-- 비어 있는 칸은 일정이 아닙니다. 표에 없는 내용을 지어내지 마세요.
-- 출력은 JSON 배열만. 예: [{"day":0,"start":"09:00","end":"10:15","label":"용접공학"}]
-${text?'\n[시간표 데이터(엑셀 변환, 병합셀은 채워서 표시)]\n'+text:'\n(첨부 이미지 참고)'}`;
-    const opts={modelTier:'default'};if(images.length)opts.images=images;
-    const r=await sample.json(prompt,opts);
-    const arr=Array.isArray(r)?r:(r&&Array.isArray(r.events)?r.events:null);
-    if(!arr)throw new Error('결과를 해석하지 못했습니다.');
-    f.events=arr.map(e=>({day:Math.max(0,Math.min(6,parseInt(e.day)||0)),start:fm(tm(e.start)??0),end:fm(tm(e.end)??0),label:String(e.label||'')})).filter(e=>tm(e.end)>tm(e.start));
+    const body={};
+    if(['xlsx','xls','csv'].includes(ext))body.text=await excelToText(file);
+    else if(ext==='pdf'){
+      if(file.size>15e6)throw new Error('PDF가 너무 큽니다 (최대 15MB).');
+      body.files=[{mime:'application/pdf',b64:await b64(file)}];
+    }else if(file.type.startsWith('image/')||['png','jpg','jpeg','webp','gif'].includes(ext)){
+      const img=await shrink(file);body.files=[{mime:img.type||'image/png',b64:await b64(img)}];
+    }else throw new Error('지원하지 않는 형식입니다.');
+    const r=await api('POST','/api/extract',body);
+    f.events=r.events;
     f.status='done';delete f.file;
     const existed=files.some(x=>x!==f&&okPerson(x)&&nkey(x.name)===nkey(f.name));
     const n=dedupe();
@@ -350,21 +371,9 @@ async function excelToText(file){
   }
   return out.slice(0,60000);
 }
-async function pdfToImages(file){
-  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise,out=[];
-  for(let p=1;p<=Math.min(pdf.numPages,4);p++){
-    const page=await pdf.getPage(p),vp0=page.getViewport({scale:1});
-    const vp=page.getViewport({scale:Math.min(2.2,2000/Math.max(vp0.width,vp0.height))}),c=document.createElement('canvas');
-    c.width=vp.width;c.height=vp.height;
-    await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
-    out.push(await new Promise(r=>c.toBlob(r,'image/png')));
-  }
-  return out;
-}
 async function shrink(file){
   const bmp=await createImageBitmap(file),s=Math.min(1,2000/Math.max(bmp.width,bmp.height));
-  if(s===1&&file.size<4e6)return file;
+  if(s===1&&file.size<4e6&&/^image\/(png|jpeg|webp|gif)$/.test(file.type))return file;
   const c=document.createElement('canvas');c.width=Math.round(bmp.width*s);c.height=Math.round(bmp.height*s);
   c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
   return await new Promise(r=>c.toBlob(r,'image/png'));
