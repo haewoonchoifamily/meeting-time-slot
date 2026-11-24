@@ -382,6 +382,7 @@ function parseGrid(rows){
       const v=String(row[c]??'').trim();if(!v)continue;
       const rg=rangeOf(v);if(rg){rt={s:rg[0],e:rg[1]};break}
       const t=timeOf(v);if(t!=null){rt={s:t,e:null};break}
+      const pm=/\(\s*(\d{1,2})\s*:\s*(\d{2})\s*\)/.exec(v);if(pm){rt={s:+pm[1]*60+ +pm[2],e:null};break}
       const p=/^(\d{1,2})\s*교시$/.exec(v);if(p)pr=+p[1];
     }
     if(!rt&&pr!=null){const st=9*60+(pr-1)*60;rt={s:st,e:st+50};assumed=true}
