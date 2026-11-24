@@ -1,6 +1,6 @@
 // 공용 회의시간 조회 (계명대학교 학생처) — Cloudflare Worker
 // 정적 페이지(public/)는 ASSETS가 서비스하고, /api/* 만 이 Worker가 처리합니다.
-// 필요한 시크릿: APP_PASSCODE  /  바인딩: DB(D1), AI(Workers AI)
+// 선택 시크릿: APP_PASSCODE(설정하면 접속 암호 요구)  /  바인딩: DB(D1), AI(Workers AI)
 
 const KINDS = ['people', 'groups'];
 const MAX_DOC_BYTES = 300_000;
@@ -107,8 +107,8 @@ async function extract(req, env) {
 }
 
 async function handleApi(req, env, url) {
-  if (!env.APP_PASSCODE) return fail(503, '서버에 APP_PASSCODE 시크릿이 설정되어 있지 않습니다.');
-  if (!(await passcodeOk(req, env))) return fail(401, '암호가 필요합니다.');
+  // APP_PASSCODE 시크릿이 있을 때만 접속 암호를 요구합니다 (없으면 주소를 아는 누구나 사용).
+  if (env.APP_PASSCODE && !(await passcodeOk(req, env))) return fail(401, '암호가 필요합니다.');
   const parts = url.pathname.split('/').filter(Boolean); // ['api', kind, id?]
   if (parts[1] === 'ping' && req.method === 'GET') return json({ ok: true });
   if (parts[1] === 'extract' && req.method === 'POST') return extract(req, env);

@@ -5,7 +5,7 @@
 - 조회 탭: 그룹/사람을 골라 합친 달력 보기 ("일정 있는 사람" / "가능한 사람")
 - 설정 탭: 신규 명단 등록, 이름·일정 수정, 삭제, 그룹 관리 (같은 이름 업로드 시 대체/건너뛰기 확인)
 - 명단/그룹 저장: Cloudflare D1 (같은 주소를 여는 모든 사람이 공유)
-- 접속 암호(`APP_PASSCODE`)를 아는 사람만 사용 가능
+- 접속 암호는 기본적으로 **없음**(주소를 아는 사람은 누구나 사용). 필요하면 시크릿 `APP_PASSCODE`를 등록하면 그때부터 암호를 묻습니다.
 
 ## 시간표를 읽는 방법 (외부 API 키 불필요)
 | 파일 | 처리 |
@@ -25,14 +25,13 @@
     schema.sql          D1 테이블 (Worker가 처음 호출 때 자동 생성하므로 수동 실행은 선택)
 
 ## 배포
-1. **시크릿 1개 등록**: Cloudflare 대시보드 → Workers & Pages → meeting-time-slot → Settings → Variables and Secrets → 유형 *Secret*
-   - `APP_PASSCODE` : 팀이 함께 쓸 접속 암호
-   (터미널: `npx wrangler secret put APP_PASSCODE`)
-2. **배포**: GitHub 연결 배포는 `main`에 push할 때마다 자동. 직접 하려면 `npx wrangler login` 후 `npx wrangler deploy`
+1. **배포**: GitHub 연결 배포는 `main`에 push할 때마다 자동. 직접 하려면 `npx wrangler login` 후 `npx wrangler deploy`
+   (시크릿 등록은 필요 없습니다.)
+2. **(선택) 접속 제한**: 주소를 아는 누구나 명단을 보고 바꿀 수 있고 AI 무료 사용량을 쓸 수 있습니다. 제한하려면 둘 중 하나를 쓰세요.
+   - 접속 암호: 대시보드 → Worker → Settings → Variables and Secrets에 `APP_PASSCODE`(Secret) 등록 (또는 `npx wrangler secret put APP_PASSCODE`)
+   - Cloudflare Access: Zero Trust에서 이 Worker 주소를 학교 이메일 로그인으로 보호 (코드 변경 없음)
 3. 다른 Cloudflare 계정에 올리는 경우: `npx wrangler d1 create meeting-time-slot` 후 나온 `database_id`를 `wrangler.jsonc`에 넣습니다.
 
-`APP_PASSCODE`가 없으면 `/api`가 "설정되어 있지 않습니다" 오류를 돌려줍니다 (암호 없이 열리지 않도록 닫힌 상태가 기본).
-암호 대신 Cloudflare Access(학교 이메일 로그인)로 접근을 제한하는 방법도 있습니다.
 
 ## 로컬 실행
     cp .dev.vars.example .dev.vars   # 값 채우기
