@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>공용 회의시간 조회 (계명대학교 학생처)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2430;--mute:#6b7685;--line:#e3e7ec;--accent:#2f5fd0;--ok:#d9f2e1;--okink:#1d6b3a;--danger:#b3261e}
 *{box-sizing:border-box}
@@ -127,7 +128,7 @@ td.allfree .all{font-size:11px;color:var(--okink);font-weight:600}
           엑셀(.xlsx .xls .csv) · PDF · 이미지(.png .jpg)<br>여러 파일을 한 번에 올릴 수 있어요
         </div>
         <input type="file" id="fi" multiple accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.gif,image/*,application/pdf" hidden>
-        <div class="mute" style="margin-top:8px;line-height:1.5">파일 이름이 곧 표시 이름입니다 (예: 홍길동.xlsx → 홍길동). 읽기가 끝나면 자동으로 등록됩니다. 이미 같은 이름이 있으면 대체할지 건너뛸지 물어봅니다.</div>
+        <div class="mute" style="margin-top:8px;line-height:1.5">파일 이름이 곧 표시 이름입니다 (예: 홍길동.xlsx → 홍길동). 엑셀은 코드로 바로 읽고(양식이 다르면 AI), 이미지·PDF는 AI가 읽습니다. 읽기가 끝나면 자동으로 등록되고, 이미 같은 이름이 있으면 대체할지 건너뛸지 물어봅니다.</div>
         <div id="unote" class="mute" style="margin-top:8px;color:var(--okink)"></div>
         <div id="ulist"></div>
       </div>
@@ -335,24 +336,126 @@ async function handle(list){
   if(skipped.length)notice(`이미 등록되어 있어 건너뜀: ${skipped.join(', ')}`);
 }
 const b64=blob=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(blob)});
+
+/* ---------- B. 엑셀을 코드로 읽기 (AI·서버 호출 없음) ---------- */
+const DAYMAP={월:0,화:1,수:2,목:3,금:4,토:5,일:6,mon:0,tue:1,wed:2,thu:3,fri:4,sat:5,sun:6};
+function dayOf(v){
+  const t=String(v??'').trim().replace(/\s+/g,'').replace(/\.$/,'');
+  let m=/^(월|화|수|목|금|토|일)(요일)?$/.exec(t);if(m)return DAYMAP[m[1]];
+  m=/^(mon|tue|wed|thu|fri|sat|sun)[a-z]*$/i.exec(t);return m?DAYMAP[m[1].toLowerCase()]:null;
+}
+function timeOf(s){
+  const m=/^(오전|오후|am|pm)?\s*(\d{1,2})\s*(?::|시)\s*(\d{2})?\s*(?::\d{2})?\s*(분)?$/i.exec(String(s??'').trim());
+  if(!m)return null;
+  let hh=+m[2];const mi=+(m[3]||0),ap=(m[1]||'').toLowerCase();
+  if((ap==='오후'||ap==='pm')&&hh<12)hh+=12;if((ap==='오전'||ap==='am')&&hh===12)hh=0;
+  return hh>24||mi>59?null:hh*60+mi;
+}
+function rangeOf(s){
+  const parts=String(s??'').trim().split(/\s*[~\-–—]\s*|\s+to\s+/i);
+  if(parts.length!==2)return null;
+  const a=timeOf(parts[0]),b=timeOf(parts[1]);
+  return a!=null&&b!=null&&b>a?[a,b]:null;
+}
+const cellText=v=>{const t=String(v??'').replace(/\s*\n\s*/g,' ').trim();return /^[-–—×xX.·]*$/.test(t)?'':t.slice(0,80)};
+function sheetRows(ws){
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  for(const m of (ws['!merges']||[])){
+    const v=(rows[m.s.r]||[])[m.s.c]??'';
+    for(let r=m.s.r;r<=m.e.r;r++){rows[r]=rows[r]||[];for(let c=m.s.c;c<=m.e.c;c++)if(r!==m.s.r||c!==m.s.c)rows[r][c]=v}
+  }
+  return rows;
+}
+// 요일이 가로 머리글, 시간(또는 N교시)이 세로 머리글인 표
+function parseGrid(rows){
+  let hr=-1,dayCol={};
+  for(let r=0;r<Math.min(rows.length,20);r++){
+    const m={};(rows[r]||[]).forEach((v,c)=>{const d=dayOf(v);if(d!=null)m[c]=d});
+    if(new Set(Object.values(m)).size>=3){hr=r;dayCol=m;break}
+  }
+  if(hr<0)return null;
+  const cols=Object.keys(dayCol).map(Number),minCol=Math.min(...cols);
+  const info=[];let assumed=false;
+  for(let r=hr+1;r<rows.length;r++){
+    const row=rows[r]||[];let rt=null,pr=null;
+    for(let c=0;c<minCol&&c<4;c++){
+      const v=String(row[c]??'').trim();if(!v)continue;
+      const rg=rangeOf(v);if(rg){rt={s:rg[0],e:rg[1]};break}
+      const t=timeOf(v);if(t!=null){rt={s:t,e:null};break}
+      const p=/^(\d{1,2})\s*교시$/.exec(v);if(p)pr=+p[1];
+    }
+    if(!rt&&pr!=null){const st=9*60+(pr-1)*60;rt={s:st,e:st+50};assumed=true}
+    if(rt)info.push({r,s:rt.s,e:rt.e});
+  }
+  if(info.length<2)return null;
+  info.forEach((x,i)=>{
+    if(x.e==null){const nx=info[i+1];x.e=nx&&nx.s>x.s?nx.s:x.s+((i>0?x.s-info[i-1].s:0)||60)}
+  });
+  const events=[];
+  cols.forEach(c=>{
+    let cur=null;
+    info.forEach(x=>{
+      const label=cellText((rows[x.r]||[])[c]);
+      if(!label){cur=null;return}
+      if(cur&&cur.label===label&&x.s-cur.end<=15){cur.end=x.e}
+      else{cur={day:dayCol[c],start:x.s,end:x.e,label};events.push(cur)}
+    });
+  });
+  return {events:events.map(e=>({day:e.day,start:fm(e.start),end:fm(e.end),label:e.label})),assumed};
+}
+// 요일|시작|종료|내용 처럼 한 줄에 일정 하나씩 적힌 표
+function parseList(rows){
+  for(let r=0;r<Math.min(rows.length,10);r++){
+    const hdr=(rows[r]||[]).map(v=>String(v??'').trim());
+    const ci=rx=>hdr.findIndex(h=>rx.test(h));
+    const cd=ci(/요일|^day$/i),cs=ci(/시작|^start|^from/i),ce=ci(/종료|끝|^end|^to$/i),ct=ci(/^시간$|^time$/i),cl=ci(/내용|과목|일정|제목|수업|^title|^name/i);
+    if(cd<0||!((cs>=0&&ce>=0)||ct>=0))continue;
+    const events=[];
+    for(let k=r+1;k<rows.length;k++){
+      const row=rows[k]||[],d=dayOf(row[cd]);if(d==null)continue;
+      let a,b;
+      if(cs>=0&&ce>=0){a=timeOf(row[cs]);b=timeOf(row[ce])}
+      else{const rg=rangeOf(row[ct]);if(rg){a=rg[0];b=rg[1]}}
+      if(a==null||b==null||b<=a)continue;
+      events.push({day:d,start:fm(a),end:fm(b),label:cl>=0?cellText(row[cl]):''});
+    }
+    if(events.length)return {events,assumed:false};
+  }
+  return null;
+}
+async function excelEvents(file){
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+  for(const sn of wb.SheetNames){
+    const ws=wb.Sheets[sn];if(!ws['!ref'])continue;
+    const rows=sheetRows(ws),r=parseGrid(rows)||parseList(rows);
+    if(r&&r.events.length)return r;
+  }
+  return null;
+}
+
+/* ---------- 업로드 분석: 엑셀=코드 → (못 읽으면) AI, 이미지·PDF=AI ---------- */
 async function analyze(f){
   f.status='reading';f.error='';render();
   try{
     const file=f.file,ext=(file.name.split('.').pop()||'').toLowerCase();
-    const body={};
-    if(['xlsx','xls','csv'].includes(ext))body.text=await excelToText(file);
-    else if(ext==='pdf'){
+    let events=null,via='ai',assumed=false;
+    if(['xlsx','xls','csv'].includes(ext)){
+      let r=null;try{r=await excelEvents(file)}catch(e){}
+      if(r){events=r.events;via='code';assumed=r.assumed}
+      else events=(await api('POST','/api/extract',{text:await excelToText(file)})).events;
+    }else if(ext==='pdf'){
       if(file.size>15e6)throw new Error('PDF가 너무 큽니다 (최대 15MB).');
-      body.files=[{mime:'application/pdf',b64:await b64(file)}];
+      const imgs=await pdfToImages(file);
+      events=(await api('POST','/api/extract',{files:await Promise.all(imgs.map(async i=>({mime:'image/jpeg',b64:await b64(i)})))})).events;
     }else if(file.type.startsWith('image/')||['png','jpg','jpeg','webp','gif'].includes(ext)){
-      const img=await shrink(file);body.files=[{mime:img.type||'image/png',b64:await b64(img)}];
+      const img=await shrink(file);
+      events=(await api('POST','/api/extract',{files:[{mime:img.type||'image/png',b64:await b64(img)}]})).events;
     }else throw new Error('지원하지 않는 형식입니다.');
-    const r=await api('POST','/api/extract',body);
-    f.events=r.events;
-    f.status='done';delete f.file;
+    if(!events||!events.length)throw new Error('시간표에서 일정을 찾지 못했습니다. 다른 파일(엑셀 권장)로 올리거나, 양식을 확인해 주세요.');
+    f.events=events;f.status='done';delete f.file;
     const existed=files.some(x=>x!==f&&okPerson(x)&&nkey(x.name)===nkey(f.name));
     const n=dedupe();
-    if(existed)notice(`"${f.name}" 기존 시간표를 새 파일로 대체했습니다.`);
+    notice(`"${f.name}": `+(via==='code'?'엑셀을 코드로 읽었습니다':'AI가 읽었습니다. 틀릴 수 있으니 일정을 확인해 주세요')+(assumed?' (교시는 1교시 09:00, 50분 수업으로 가정)':'')+(existed?' · 기존 시간표를 대체했습니다':'')+'.');
     people.save();if(n)grp.save();
   }catch(e){f.status='error';f.error=(e&&e.message)||'분석 실패'}
   render();
@@ -362,21 +465,29 @@ async function excelToText(file){
   let out='';
   for(const sn of wb.SheetNames){
     const ws=wb.Sheets[sn];if(!ws['!ref'])continue;
-    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-    for(const m of (ws['!merges']||[])){
-      const v=(rows[m.s.r]||[])[m.s.c]??'';
-      for(let r=m.s.r;r<=m.e.r;r++){rows[r]=rows[r]||[];for(let c=m.s.c;c<=m.e.c;c++)if(r!==m.s.r||c!==m.s.c)rows[r][c]=v}
-    }
-    out+=`## 시트: ${sn}\n`+rows.map((r,i)=>(i+1)+'\t'+r.join('\t')).join('\n')+'\n';
+    out+=`## 시트: ${sn}\n`+sheetRows(ws).map((r,i)=>(i+1)+'\t'+r.join('\t')).join('\n')+'\n';
   }
   return out.slice(0,60000);
 }
+async function pdfToImages(file){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise,out=[];
+  for(let p=1;p<=Math.min(pdf.numPages,3);p++){
+    const page=await pdf.getPage(p),vp0=page.getViewport({scale:1});
+    const vp=page.getViewport({scale:Math.min(2.5,1800/Math.max(vp0.width,vp0.height))}),c=document.createElement('canvas');
+    c.width=vp.width;c.height=vp.height;
+    const cx=c.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,c.width,c.height);
+    await page.render({canvasContext:cx,viewport:vp}).promise;
+    out.push(await new Promise(r=>c.toBlob(r,'image/jpeg',0.9)));
+  }
+  return out;
+}
 async function shrink(file){
-  const bmp=await createImageBitmap(file),s=Math.min(1,2000/Math.max(bmp.width,bmp.height));
-  if(s===1&&file.size<4e6&&/^image\/(png|jpeg|webp|gif)$/.test(file.type))return file;
+  const bmp=await createImageBitmap(file),s=Math.min(1,1800/Math.max(bmp.width,bmp.height));
+  if(s===1&&file.size<3e6&&/^image\/(png|jpeg|webp|gif)$/.test(file.type))return file;
   const c=document.createElement('canvas');c.width=Math.round(bmp.width*s);c.height=Math.round(bmp.height*s);
-  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
-  return await new Promise(r=>c.toBlob(r,'image/png'));
+  const cx=c.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,c.width,c.height);cx.drawImage(bmp,0,0,c.width,c.height);
+  return await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
 }
 
 /* ---------- 탭 ---------- */
