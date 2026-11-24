@@ -1,6 +1,6 @@
 // 공용 회의시간 조회 (계명대학교 학생처) — Cloudflare Worker
 // 정적 페이지(public/)는 ASSETS가 서비스하고, /api/* 만 이 Worker가 처리합니다.
-// 필요한 시크릿: ANTHROPIC_API_KEY, APP_PASSCODE  /  바인딩: DB(D1)
+// 선택 시크릿: APP_PASSCODE(설정하면 접속 암호 요구)  /  바인딩: DB(D1), AI(Workers AI)
 
 const KINDS = ['people', 'groups'];
 const MAX_DOC_BYTES = 300_000;
@@ -49,18 +49,20 @@ const PROMPT = (text) => `아래는 한 사람의 "주간 시간표"입니다. �
 - 연속된 같은 일정은 하나로 합치고, label은 과목/일정명(짧게, 없으면 "")으로 하세요.
 - 비어 있는 칸은 일정이 아닙니다. 표에 없는 내용을 지어내지 마세요.
 - 출력은 JSON 배열만(설명·코드블록 없이). 예: [{"day":0,"start":"09:00","end":"10:15","label":"용접공학"}]
-${text ? '\n[시간표 데이터(엑셀 변환, 병합셀은 채워서 표시)]\n' + text : '\n(첨부된 이미지/PDF 참고)'}`;
+${text ? '\n[시간표 데이터(엑셀 변환, 병합셀은 채워서 표시)]\n' + text : '\n(첨부된 이미지 참고)'}`;
 
 const toMin = (s) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(s || '')); return m ? +m[1] * 60 + +m[2] : null; };
 const fmt = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
 
 function parseEvents(text) {
-  let t = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-  const a = t.indexOf('['), b = t.lastIndexOf(']');
-  if (a < 0 || b < a) throw new Error('결과를 해석하지 못했습니다.');
-  const arr = JSON.parse(t.slice(a, b + 1));
-  if (!Array.isArray(arr)) throw new Error('결과를 해석하지 못했습니다.');
+  const t = String(text || '');
+  const a = t.indexOf('[{'), b = t.lastIndexOf(']');
+  if (a < 0 || b < a) return []; // 일정을 못 찾은 경우
+  let arr;
+  try { arr = JSON.parse(t.slice(a, b + 1)); } catch { throw new Error('AI 결과를 해석하지 못했습니다.'); }
+  if (!Array.isArray(arr)) throw new Error('AI 결과를 해석하지 못했습니다.');
   return arr
+    .filter((e) => e && typeof e === 'object')
     .map((e) => ({
       day: Math.max(0, Math.min(6, parseInt(e.day) || 0)),
       start: fmt(toMin(e.start) ?? 0),
@@ -71,42 +73,42 @@ function parseEvents(text) {
     .slice(0, 500);
 }
 
+async function runAI(env, model, content) {
+  const res = await env.AI.run(model, { messages: [{ role: 'user', content }], max_completion_tokens: 4096 });
+  const out = res?.choices?.[0]?.message?.content ?? res?.response ?? '';
+  return Array.isArray(out) ? out.map((x) => x?.text || '').join('') : String(out);
+}
+
 async function extract(req, env) {
-  if (!env.ANTHROPIC_API_KEY) return fail(503, '서버에 ANTHROPIC_API_KEY 시크릿이 설정되어 있지 않습니다.');
+  if (!env.AI) return fail(503, '서버에 AI 바인딩이 설정되어 있지 않습니다.');
   const len = Number(req.headers.get('content-length') || 0);
   if (len > MAX_EXTRACT_BYTES) return fail(413, '파일이 너무 큽니다 (최대 약 24MB).');
   let body;
   try { body = await req.json(); } catch { return fail(400, '잘못된 요청입니다.'); }
   const text = typeof body.text === 'string' ? body.text.slice(0, 60000) : '';
-  const files = Array.isArray(body.files) ? body.files.slice(0, 6) : [];
-  const content = [];
-  for (const f of files) {
-    if (!f || typeof f.b64 !== 'string') continue;
-    if (f.mime === 'application/pdf') content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: f.b64 } });
-    else if (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)) content.push({ type: 'image', source: { type: 'base64', media_type: f.mime, data: f.b64 } });
+  const images = (Array.isArray(body.files) ? body.files : [])
+    .filter((f) => f && typeof f.b64 === 'string' && /^image\/(png|jpeg|gif|webp)$/.test(f.mime))
+    .slice(0, 3);
+  if (!text && !images.length) return fail(400, '읽을 내용이 없습니다.');
+  const textModel = env.TEXT_MODEL || '@cf/google/gemma-4-26b-a4b-it';
+  const visionModel = env.VISION_MODEL || '@cf/google/gemma-4-26b-a4b-it';
+  const events = [];
+  try {
+    if (text) events.push(...parseEvents(await runAI(env, textModel, PROMPT(text))));
+    for (const f of images) {
+      const url = `data:${f.mime};base64,${f.b64}`;
+      events.push(...parseEvents(await runAI(env, visionModel, [{ type: 'image_url', image_url: { url } }, { type: 'text', text: PROMPT('') }])));
+    }
+  } catch (e) {
+    return fail(502, 'AI 호출 실패: ' + (e && e.message || e));
   }
-  if (!text && !content.length) return fail(400, '읽을 내용이 없습니다.');
-  content.push({ type: 'text', text: PROMPT(text) });
-
-  const base = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
-  const r = await fetch(base + '/v1/messages', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: env.MODEL || 'claude-sonnet-5-5', max_tokens: 8000, messages: [{ role: 'user', content }] }),
-  });
-  if (!r.ok) {
-    let m = '';
-    try { m = (await r.json()).error?.message || ''; } catch {}
-    return fail(502, `Claude 호출 실패 (${r.status}) ${m}`.trim());
-  }
-  const data = await r.json();
-  const out = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
-  try { return json({ events: parseEvents(out) }); } catch (e) { return fail(502, e.message); }
+  const seen = new Set();
+  return json({ events: events.filter((e) => { const k = `${e.day}|${e.start}|${e.end}|${e.label}`; return seen.has(k) ? false : (seen.add(k), true); }) });
 }
 
 async function handleApi(req, env, url) {
-  if (!env.APP_PASSCODE) return fail(503, '서버에 APP_PASSCODE 시크릿이 설정되어 있지 않습니다.');
-  if (!(await passcodeOk(req, env))) return fail(401, '암호가 필요합니다.');
+  // APP_PASSCODE 시크릿이 있을 때만 접속 암호를 요구합니다 (없으면 주소를 아는 누구나 사용).
+  if (env.APP_PASSCODE && !(await passcodeOk(req, env))) return fail(401, '암호가 필요합니다.');
   const parts = url.pathname.split('/').filter(Boolean); // ['api', kind, id?]
   if (parts[1] === 'ping' && req.method === 'GET') return json({ ok: true });
   if (parts[1] === 'extract' && req.method === 'POST') return extract(req, env);

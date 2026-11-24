@@ -1,3 +1,2 @@
-ANTHROPIC_API_KEY=sk-ant-...
-APP_PASSCODE=팀에서 정한 암호
-# 테스트용 가짜 서버를 쓸 때만: ANTHROPIC_BASE_URL=http://127.0.0.1:9911
+# 선택: 접속 암호를 쓰려면 주석을 풀고 값을 넣으세요
+# APP_PASSCODE=팀에서 정한 암호
