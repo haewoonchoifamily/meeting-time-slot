@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공용 회의시간 조회 (계명대학교 학생처)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2430;--mute:#6b7685;--line:#e3e7ec;--accent:#2f5fd0;--ok:#d9f2e1;--okink:#1d6b3a;--danger:#b3261e}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
+header{padding:26px 24px 4px;text-align:center}
+h1{margin:0;font-size:32px;line-height:1.3;letter-spacing:-.5px}
+header p{margin:8px 0 0;color:var(--mute);font-size:16px}
+@media(max-width:700px){h1{font-size:24px}}
+.tabs{display:flex;justify-content:center;gap:4px;padding:12px 24px 0;border-bottom:1px solid var(--line)}
+.tabs button{border:none;background:none;padding:10px 26px;font-size:17px;font-weight:600;color:var(--mute);border-bottom:3px solid transparent;border-radius:0;cursor:pointer}
+.tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+.pane{padding:16px 24px 32px}
+@media(max-width:700px){.pane,header,.tabs{padding-left:12px;padding-right:12px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card h2{margin:0 0 10px;font-size:15px}
+.stack{display:flex;flex-direction:column;gap:14px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start}
+.sync{font-size:12px;color:var(--mute);margin-bottom:10px}
+button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 11px;cursor:pointer;color:var(--ink)}
+button:hover{background:#f0f3f8}
+button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+button.pri:hover{background:#2551b4}
+button.danger{color:var(--danger);border-color:#efc4c0}
+button.danger.arm{background:var(--danger);color:#fff}
+button.x{border:none;background:none;color:var(--mute);padding:2px 6px}
+input[type=text]{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;min-width:0}
+.mute{color:var(--mute);font-size:12px}
+.sel h3{margin:0 0 6px;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+.sel h3 span{font-weight:400}
+.sel a{color:var(--accent);cursor:pointer;text-decoration:none}
+.chips2{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.rc{border:2px solid var(--c);color:var(--c);background:#fff;border-radius:16px;padding:3px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.rc.on{background:var(--c);color:#fff}
+.rc.grp{border-radius:8px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:none;border-radius:0;padding:5px 12px}
+.seg button.on{background:var(--accent);color:#fff}
+label.chk{display:inline-flex;gap:5px;align-items:center;color:var(--mute);cursor:pointer}
+.gridwrap{overflow:auto;max-height:76vh;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:separate;border-spacing:0;width:100%;min-width:640px;table-layout:fixed}
+th{position:sticky;top:0;background:#f0f3f8;z-index:2;font-weight:600;padding:8px 4px;border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+th.t,td.t{width:54px;position:sticky;left:0;background:#f7f9fb;z-index:1;color:var(--mute);font-size:12px;text-align:right;padding:2px 6px;vertical-align:top}
+th.t{z-index:3}
+td{border-bottom:1px solid #eef1f4;border-right:1px solid #eef1f4;padding:2px;vertical-align:top;height:34px}
+tr.hr td{border-top:1px solid #cfd6df}
+.chips{display:flex;flex-wrap:wrap;gap:2px}
+.chip{font-size:11px;line-height:1.3;padding:1px 5px;border-radius:9px;color:#fff;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.allfree{background:var(--ok)}
+td.allfree .all{font-size:11px;color:var(--okink);font-weight:600}
+.empty{padding:36px;text-align:center;color:var(--mute)}
+.drop{border:2px dashed #b9c3d3;border-radius:12px;padding:22px 12px;text-align:center;color:var(--mute);cursor:pointer;transition:.15s}
+.drop.on,.drop:hover{border-color:var(--accent);background:#eef3ff;color:var(--accent)}
+.drop b{display:block;color:var(--ink);margin-bottom:4px}
+.item{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff;margin-top:8px}
+.row{display:flex;align-items:center;gap:8px}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.row input[type=text]{flex:1;font-weight:600}
+.err{color:var(--danger)}
+.evs{margin-top:8px;border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:5px}
+.ev{display:grid;grid-template-columns:58px 1fr 1fr;gap:4px}
+.ev input,.ev select{font:inherit;font-size:12px;padding:3px 4px;border:1px solid var(--line);border-radius:6px;min-width:0;width:100%}
+.ev .lab{grid-column:1/3}
+.ev button{padding:2px 4px}
+.addrow{display:flex;gap:8px;margin-bottom:6px}
+.addrow input{flex:1}
+.ssec+.ssec,.mute+.ssec{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.dlgbg{position:fixed;inset:0;background:rgba(20,28,40,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.dlg{background:#fff;border-radius:14px;padding:22px 24px;max-width:440px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.dlg h3{margin:0 0 10px;font-size:18px;color:var(--danger)}
+.dlg p{margin:0 0 14px;line-height:1.6;font-size:15px}
+.dlg label{display:flex;gap:8px;align-items:center;margin:0 0 16px;color:var(--mute);cursor:pointer}
+.dlg .btns{display:flex;gap:8px;justify-content:flex-end}
+.dlg .btns button{padding:8px 18px;font-size:15px}
+.mlist{margin-top:8px;border-top:1px solid var(--line);padding-top:6px;max-height:260px;overflow:auto}
+.mlist .mh{display:flex;justify-content:space-between;font-size:12px;color:var(--mute);padding:2px 4px 6px}
+.mlist a{color:var(--accent);cursor:pointer}
+.mi{display:flex;align-items:center;gap:8px;padding:5px 4px;border-radius:6px;cursor:pointer}
+.mi:hover{background:#f3f6fb}
+.mi input{width:16px;height:16px;margin:0}
+</style>
+</head>
+<body>
+<header>
+  <h1>공용 회의시간 조회 (계명대학교 학생처)</h1>
+  <p>여러 사람의 시간표를 한 주간 달력에 합쳐서, 시간마다 이름을 보여줍니다.</p>
+</header>
+<div class="tabs" id="tabs">
+  <button data-t="view" class="on">조회</button>
+  <button data-t="manage">설정</button>
+</div>
+
+<!-- ================= 조회 ================= -->
+<section class="pane stack" id="pv">
+  <div class="card sel" id="sel"></div>
+  <div class="card">
+    <div class="toolbar">
+      <div class="seg" id="mode">
+        <button data-m="busy" class="on">일정 있는 사람</button>
+        <button data-m="free">가능한 사람</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="wk"> 토·일 포함</label>
+      <label class="chk"><input type="checkbox" id="full"> 전체 시간대</label>
+    </div>
+    <div class="gridwrap" id="gridwrap"></div>
+    <div class="mute" id="legend" style="margin-top:8px"></div>
+  </div>
+</section>
+
+<!-- ================= 설정 ================= -->
+<section class="pane" id="ps" hidden>
+  <div class="sync" id="sync"></div>
+  <div class="cols">
+    <div class="stack">
+      <div class="card">
+        <h2>신규 명단 등록</h2>
+        <div class="drop" id="drop">
+          <b>파일을 끌어다 놓거나 클릭</b>
+          엑셀(.xlsx .xls .csv) · PDF · 이미지(.png .jpg)<br>여러 파일을 한 번에 올릴 수 있어요
+        </div>
+        <input type="file" id="fi" multiple accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.gif,image/*,application/pdf" hidden>
+        <div class="mute" style="margin-top:8px;line-height:1.5">파일 이름이 곧 표시 이름입니다 (예: 홍길동.xlsx → 홍길동). 읽기가 끝나면 자동으로 등록됩니다. 이미 같은 이름이 있으면 대체할지 건너뛸지 물어봅니다.</div>
+        <div id="unote" class="mute" style="margin-top:8px;color:var(--okink)"></div>
+        <div id="ulist"></div>
+      </div>
+      <div class="card">
+        <h2>그룹 추가</h2>
+        <div class="addrow"><input type="text" id="gname" placeholder="그룹 이름 (예: 학생처, 1학년 교수)"><button class="pri" id="gadd">추가</button></div>
+        <div id="glist"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>등록된 명단 <span class="mute" id="pcount"></span></h2>
+      <div id="plist"></div>
+    </div>
+  </div>
+</section>
+
+<script>
+const DAYS=['월','화','수','목','금','토','일'];
+const COLORS=['#2f5fd0','#d0472f','#1f8a5b','#8a4fd0','#c98a00','#0e8aa6','#c2358a','#5a6b7d','#6b8e23','#b5532a'];
+let files=[];   // 사람: {id,ts,name,color,events:[{day,start,end,label}],status,error,visible,open,file}
+let groups=[];  // 그룹: {id,ts,name,members:[personId]}
+let mode='busy', sample=null, limits=null, vis={};
+
+const $=s=>document.querySelector(s);
+const tm=s=>{const m=/^(\d{1,2}):(\d{2})/.exec(String(s||''));return m?(+m[1])*60+(+m[2]):null};
+const fm=n=>String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+const newId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const byTs=(a,b)=>(a.ts||0)-(b.ts||0)||String(a.id).localeCompare(String(b.id));
+function esc(t){return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function h(tag,props,...kids){
+  const e=document.createElement(tag);
+  for(const k in (props||{})){const v=props[k];
+    if(k==='class')e.className=v; else if(k==='style')e.style.cssText=v;
+    else if(k.startsWith('on'))e[k]=v; else if(v===true)e.setAttribute(k,''); else if(v!==false&&v!=null)e.setAttribute(k,v);}
+  kids.flat().forEach(c=>{if(c==null||c===false)return;e.append(c.nodeType?c:document.createTextNode(c))});
+  return e;
+}
+function armDelete(btn,label,fn){ // confirm() 대신 두 번 클릭
+  let t;btn.onclick=()=>{
+    if(btn.dataset.arm!=='1'){btn.dataset.arm='1';btn.classList.add('arm');btn.textContent='한 번 더 클릭';t=setTimeout(()=>{btn.dataset.arm='';btn.classList.remove('arm');btn.textContent=label},3000)}
+    else{clearTimeout(t);fn()}
+  };
+}
+
+/* ---------- 저장소 (공용 DB + 이 브라우저 보조 저장) ---------- */
+const OK_MSG='공용 명단과 동기화됨 · 같은 링크를 여는 모든 사람에게 보입니다',LOCAL_MSG='이 브라우저에만 저장 중입니다',ERR_MSG='저장 권한이 없습니다(보기 전용). 편집 권한이 필요해요.';
+function setSync(t,err){const e=$('#sync');e.textContent=t;e.style.color=err?'#b3261e':''}
+function makeStore(o){
+  const st={col:null,ids:new Set(),last:{},t:null};
+  st.save=()=>{try{o.ls()}catch(e){} if(st.col){clearTimeout(st.t);st.t=setTimeout(st.flush,400)}};
+  st.flush=async()=>{
+    if(!st.col)return;
+    try{
+      const keep=new Set();
+      for(const x of o.get().filter(o.persist)){
+        keep.add(x.id);const c=o.clean(x),j=JSON.stringify(c);
+        if(st.last[x.id]!==j){await st.col.doc(o.prefix+x.id).set(c);st.last[x.id]=j;st.ids.add(x.id)}
+      }
+      for(const id of [...st.ids])if(!keep.has(id)){await st.col.doc(o.prefix+id).delete();st.ids.delete(id);delete st.last[id]}
+      setSync(OK_MSG);
+    }catch(e){setSync(ERR_MSG,true)}
+  };
+  st.apply=arr=>{
+    const arrIds=new Set(arr.map(x=>x.id));
+    if(arr.length===st.ids.size&&arr.every(x=>st.last[x.id]===JSON.stringify(o.clean(x))))return;
+    const cur=o.get(),old=Object.fromEntries(cur.map(x=>[x.id,x]));
+    const keepLocal=cur.filter(x=>o.persist(x)&&!arrIds.has(x.id)&&!st.ids.has(x.id));
+    const other=cur.filter(x=>!o.persist(x));
+    o.set(arr.sort(byTs).map(x=>o.merge(x,old[x.id])).concat(keepLocal,other));
+    st.ids=new Set(arrIds);st.last={};arr.forEach(x=>st.last[x.id]=JSON.stringify(o.clean(x)));
+    o.after();
+  };
+  st.init=async db=>{
+    const col=db.collection(o.name);
+    const toArr=snap=>{const docs=snap&&snap.docs?snap.docs:(Array.isArray(snap)?snap:[]);return docs.map(d=>typeof d.data==='function'?d.data():d).filter(x=>x&&x.id!=null&&o.valid(x))};
+    let first=true;
+    const cb=snap=>{st.apply(toArr(snap));if(first){first=false;st.col=col;st.save();setSync(OK_MSG)}};
+    if(col.onSnapshot)col.onSnapshot(cb,()=>setSync(LOCAL_MSG));
+    else cb(await Promise.race([col.get(),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),10000))]));
+  };
+  return st;
+}
+const okPerson=f=>f.status==='done'||f.status==='manual';
+const nkey=n=>String(n).trim().normalize('NFC').toLowerCase().replace(/\s+/g,' ');
+// 같은 이름의 중복을 하나로: 가장 먼저 등록된 사람(그룹 소속 유지)에 가장 최근 일정을 적용
+function dedupe(){
+  const keepBy=new Map(),removed=new Map();
+  files.filter(okPerson).sort(byTs).forEach(f=>{
+    const k=nkey(f.name),keep=keepBy.get(k);
+    if(!keep){keepBy.set(k,f);return}
+    keep.events=f.events;keep.visible=keep.visible||f.visible;removed.set(f.id,keep.id);
+  });
+  if(!removed.size)return 0;
+  files=files.filter(f=>!removed.has(f.id));
+  groups.forEach(g=>{g.members=[...new Set(g.members.map(id=>removed.get(id)||id))]});
+  return removed.size;
+}
+let noteT;
+function notice(msg){const e=$('#unote');if(!e)return;e.textContent=msg;clearTimeout(noteT);noteT=setTimeout(()=>{e.textContent=''},8000)}
+const people=makeStore({
+  name:'people',prefix:'p',get:()=>files,set:a=>{files=a},
+  persist:okPerson,
+  clean:f=>({id:f.id,name:f.name,color:f.color,events:f.events,ts:f.ts||0}),
+  valid:x=>x.name&&Array.isArray(x.events),
+  merge:(x,old)=>({...x,status:'done',error:'',open:old?old.open:false,visible:old?old.visible:vis[x.id]===true}),
+  ls:()=>{files.forEach(f=>{vis[f.id]=!!f.visible});
+    localStorage.setItem('sched-vis-v1',JSON.stringify(vis));
+    localStorage.setItem('sched-merge-v1',JSON.stringify(files.filter(okPerson).map(f=>({id:f.id,name:f.name,color:f.color,events:f.events,ts:f.ts||0}))))},
+  after:()=>{if(dedupe()){people.save();grp.save()}render()}
+});
+const grp=makeStore({
+  name:'groups',prefix:'g',get:()=>groups,set:a=>{groups=a},
+  persist:()=>true,
+  clean:g=>({id:g.id,name:g.name,members:g.members,ts:g.ts||0}),
+  valid:x=>x.name&&Array.isArray(x.members),
+  merge:x=>({...x}),
+  ls:()=>localStorage.setItem('sched-groups-v1',JSON.stringify(groups)),
+  after:()=>render()
+});
+try{vis=JSON.parse(localStorage.getItem('sched-vis-v1')||'{}')}catch(e){}
+try{files=JSON.parse(localStorage.getItem('sched-merge-v1')||'[]').map(f=>({...f,status:'done',open:false,visible:vis[f.id]!==false}))}catch(e){}
+try{groups=JSON.parse(localStorage.getItem('sched-groups-v1')||'[]')}catch(e){}
+if(dedupe()){people.save();grp.save()}
+setSync(LOCAL_MSG);
+(async()=>{
+  try{ const db=await claude.use('db'); if(db){await people.init(db);await grp.init(db)} }catch(e){setSync(LOCAL_MSG)}
+})();
+(async()=>{ try{ sample=await claude.use('sample'); if(sample&&sample.limits) limits=await sample.limits(); }catch(e){sample=null} render(); })();
+
+/* ---------- 업로드·분석 ---------- */
+const drop=$('#drop'),fi=$('#fi');
+drop.onclick=()=>fi.click();
+fi.onchange=()=>{handle([...fi.files]);fi.value=''};
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on')}));
+drop.addEventListener('drop',ev=>handle([...ev.dataTransfer.files]));
+window.addEventListener('dragover',e=>e.preventDefault());
+window.addEventListener('drop',e=>e.preventDefault());
+
+function askDup(name,old,laterDups){
+  return new Promise(res=>{
+    const all=h('input',{type:'checkbox'});
+    const done=(choice)=>{bg.remove();document.removeEventListener('keydown',onKey);res({choice,all:all.checked})};
+    const onKey=e=>{if(e.key==='Escape')done('skip')};
+    const bg=h('div',{class:'dlgbg'},h('div',{class:'dlg',role:'dialog'},
+      h('h3',null,'이미 등록되어 있음'),
+      h('p',null,h('b',null,`"${name}"`),` 은(는) 이미 등록된 이름입니다${old?` (기존 일정 ${old.events.length}개)`:''}.`,h('br'),'기존 시간표를 새 파일로 대체할까요, 건너뛸까요?'),
+      laterDups>0?h('label',null,all,`이번 업로드의 나머지 중복 파일 ${laterDups}개에도 같은 선택 적용`):null,
+      h('div',{class:'btns'},h('button',{onclick:()=>done('skip')},'건너뛰기'),h('button',{class:'pri',onclick:()=>done('replace')},'대체'))));
+    document.addEventListener('keydown',onKey);
+    document.body.append(bg);
+  });
+}
+const findDup=name=>files.find(x=>(okPerson(x)||x.status==='reading')&&nkey(x.name)===nkey(name));
+async function handle(list){
+  let always=null,skipped=[],replaced=0;
+  for(let i=0;i<list.length;i++){
+    const file=list[i],name=file.name.replace(/\.[^.]+$/,'');
+    const dup=findDup(name);
+    let replacing=false;
+    if(dup){
+      let choice=always;
+      if(!choice){
+        const laterDups=list.slice(i+1).filter(x=>findDup(x.name.replace(/\.[^.]+$/,''))).length;
+        const r=await askDup(name,dup,laterDups);
+        choice=r.choice;if(r.all)always=choice;
+      }
+      if(choice==='skip'){skipped.push(name);continue}
+      replacing=true;replaced++;
+    }
+    const f={id:newId(),ts:Date.now(),name,color:COLORS[files.length%COLORS.length],status:'reading',error:'',events:[],visible:true,open:false,file};
+    files.push(f);render();analyze(f);
+  }
+  if(skipped.length)notice(`이미 등록되어 있어 건너뜀: ${skipped.join(', ')}`);
+}
+async function analyze(f){
+  f.status='reading';f.error='';render();
+  try{
+    if(!sample)throw new Error('Claude 분석 기능을 사용할 수 없습니다. claude.ai에서 링크를 열어 주세요.');
+    const file=f.file,ext=(file.name.split('.').pop()||'').toLowerCase();
+    let images=[],text='';
+    if(['xlsx','xls','csv'].includes(ext))text=await excelToText(file);
+    else if(ext==='pdf')images=await pdfToImages(file);
+    else if(file.type.startsWith('image/')||['png','jpg','jpeg','webp','gif'].includes(ext))images=[await shrink(file)];
+    else throw new Error('지원하지 않는 형식입니다.');
+    if(images.length&&!(limits&&limits.images))throw new Error('이 화면에서는 이미지·PDF 분석을 쓸 수 없습니다. 엑셀로 올려 보세요.');
+    const prompt=`아래는 한 사람의 "주간 시간표"입니다. 요일별로 일정(수업·회의·근무·약속 등)이 있는 시간대를 모두 추출하세요.
+규칙:
+- 요일은 0=월,1=화,2=수,3=목,4=금,5=토,6=일 숫자.
+- 시간은 24시간제 "HH:MM". 교시만 있고 시각이 없으면 표에 적힌 교시별 시각을 따르고, 시각 정보가 전혀 없으면 1교시=09:00부터 50분 수업+10분 휴식으로 가정하세요.
+- 연속된 같은 일정은 하나로 합치고, label은 과목/일정명(짧게, 없으면 "")으로 하세요.
+- 비어 있는 칸은 일정이 아닙니다. 표에 없는 내용을 지어내지 마세요.
+- 출력은 JSON 배열만. 예: [{"day":0,"start":"09:00","end":"10:15","label":"용접공학"}]
+${text?'\n[시간표 데이터(엑셀 변환, 병합셀은 채워서 표시)]\n'+text:'\n(첨부 이미지 참고)'}`;
+    const opts={modelTier:'default'};if(images.length)opts.images=images;
+    const r=await sample.json(prompt,opts);
+    const arr=Array.isArray(r)?r:(r&&Array.isArray(r.events)?r.events:null);
+    if(!arr)throw new Error('결과를 해석하지 못했습니다.');
+    f.events=arr.map(e=>({day:Math.max(0,Math.min(6,parseInt(e.day)||0)),start:fm(tm(e.start)??0),end:fm(tm(e.end)??0),label:String(e.label||'')})).filter(e=>tm(e.end)>tm(e.start));
+    f.status='done';delete f.file;
+    const existed=files.some(x=>x!==f&&okPerson(x)&&nkey(x.name)===nkey(f.name));
+    const n=dedupe();
+    if(existed)notice(`"${f.name}" 기존 시간표를 새 파일로 대체했습니다.`);
+    people.save();if(n)grp.save();
+  }catch(e){f.status='error';f.error=(e&&e.message)||'분석 실패'}
+  render();
+}
+async function excelToText(file){
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+  let out='';
+  for(const sn of wb.SheetNames){
+    const ws=wb.Sheets[sn];if(!ws['!ref'])continue;
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+    for(const m of (ws['!merges']||[])){
+      const v=(rows[m.s.r]||[])[m.s.c]??'';
+      for(let r=m.s.r;r<=m.e.r;r++){rows[r]=rows[r]||[];for(let c=m.s.c;c<=m.e.c;c++)if(r!==m.s.r||c!==m.s.c)rows[r][c]=v}
+    }
+    out+=`## 시트: ${sn}\n`+rows.map((r,i)=>(i+1)+'\t'+r.join('\t')).join('\n')+'\n';
+  }
+  return out.slice(0,60000);
+}
+async function pdfToImages(file){
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise,out=[];
+  for(let p=1;p<=Math.min(pdf.numPages,4);p++){
+    const page=await pdf.getPage(p),vp0=page.getViewport({scale:1});
+    const vp=page.getViewport({scale:Math.min(2.2,2000/Math.max(vp0.width,vp0.height))}),c=document.createElement('canvas');
+    c.width=vp.width;c.height=vp.height;
+    await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+    out.push(await new Promise(r=>c.toBlob(r,'image/png')));
+  }
+  return out;
+}
+async function shrink(file){
+  const bmp=await createImageBitmap(file),s=Math.min(1,2000/Math.max(bmp.width,bmp.height));
+  if(s===1&&file.size<4e6)return file;
+  const c=document.createElement('canvas');c.width=Math.round(bmp.width*s);c.height=Math.round(bmp.height*s);
+  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  return await new Promise(r=>c.toBlob(r,'image/png'));
+}
+
+/* ---------- 탭 ---------- */
+let tab='view';
+$('#tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;tab=b.dataset.t;render()};
+
+/* ---------- 조회 탭 ---------- */
+const ready=()=>files.filter(okPerson);
+function groupMembers(g){const ids=new Set(ready().map(f=>f.id));return g.members.filter(id=>ids.has(id))}
+const selOpen=new Set();
+function renderSelector(){
+  const box=$('#sel');
+  const scr={};box.querySelectorAll('.mlist').forEach(l=>scr[l.dataset.k]=l.scrollTop);
+  box.innerHTML='';
+  const ppl=ready().sort(koSort);
+  if(!ppl.length){box.append(h('div',{class:'empty'},'등록된 명단이 없습니다. ',h('a',{href:'#',style:'color:var(--accent)',onclick:e=>{e.preventDefault();tab='manage';render()}},'설정 탭'),'에서 시간표를 등록하세요.'));return}
+  const setVis=(ids,v)=>{files.forEach(f=>{if(ids.has(f.id))f.visible=v});people.save();render()};
+  const section=(k,title,summary,tools,items)=>{
+    const open=selOpen.has(k);
+    const sec=h('div',{class:'ssec'},h('div',{class:'row'},h('b',{style:'min-width:34px'},title),
+      h('span',{class:'mute',style:'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'},summary),
+      h('button',{class:'x',onclick:()=>{open?selOpen.delete(k):selOpen.add(k);renderSelector()}},open?'▲ 접기':'▼ 열기')));
+    if(open)sec.append(h('div',{class:'mlist','data-k':k},tools,items));
+    return sec;
+  };
+  // 그룹
+  const gs=groups.slice().sort(koSort);
+  const gOn=g=>{const ids=groupMembers(g);return ids.length>0&&ids.every(id=>files.find(f=>f.id===id).visible)};
+  if(gs.length){
+    box.append(section('g','그룹',`${gs.filter(gOn).length}/${gs.length}개 선택`,null,gs.map(g=>{
+      const ids=groupMembers(g),n=ids.filter(id=>files.find(f=>f.id===id).visible).length;
+      const cb=h('input',{type:'checkbox',checked:ids.length>0&&n===ids.length,disabled:!ids.length});
+      cb.indeterminate=n>0&&n<ids.length;
+      cb.onchange=()=>setVis(new Set(ids),cb.checked);
+      return h('label',{class:'mi'},cb,h('span',null,g.name),h('span',{class:'mute'},`${ids.length}명`));
+    })));
+  }else box.append(h('div',{class:'mute'},'그룹이 없습니다. 설정 탭에서 그룹을 추가하면 여기서 한 번에 선택할 수 있어요.'));
+  // 사람
+  const sel=ppl.filter(f=>f.visible).map(f=>f.name);
+  const sum=sel.length?`${sel.length}/${ppl.length}명 선택 · `+sel.slice(0,4).join(', ')+(sel.length>4?` 외 ${sel.length-4}명`:''):`0/${ppl.length}명 선택`;
+  const all=new Set(ppl.map(f=>f.id));
+  box.append(section('p','사람',sum,
+    h('div',{class:'mh'},h('span',null,'이름 (가나다순)'),h('span',null,h('a',{onclick:()=>setVis(all,true)},'전체 선택'),' · ',h('a',{onclick:()=>setVis(all,false)},'전체 해제'))),
+    ppl.map(f=>{
+      const cb=h('input',{type:'checkbox',checked:f.visible});
+      cb.onchange=()=>setVis(new Set([f.id]),cb.checked);
+      return h('label',{class:'mi'},cb,h('span',{class:'dot',style:'background:'+f.color}),f.name);
+    })));
+  box.querySelectorAll('.mlist').forEach(l=>l.scrollTop=scr[l.dataset.k]||0);
+}
+function renderGrid(){
+  const wrap=$('#gridwrap'),all=ready().filter(f=>f.visible);
+  if(!ready().length){wrap.innerHTML='<div class="empty">설정 탭에서 명단을 등록하면 여기에 합쳐서 보여줍니다.</div>';$('#legend').textContent='';return}
+  if(!all.length){wrap.innerHTML='<div class="empty">위에서 보고 싶은 그룹이나 사람을 선택하세요.</div>';$('#legend').textContent='';return}
+  const nd=$('#wk').checked?7:5;
+  let lo=9*60,hi=18*60;
+  if($('#full').checked){lo=0;hi=24*60}
+  else all.forEach(f=>f.events.forEach(e=>{const a=tm(e.start),b=tm(e.end);if(a!=null&&b!=null){lo=Math.min(lo,Math.floor(a/60)*60);hi=Math.max(hi,Math.ceil(b/60)*60)}}));
+  let t='<table><thead><tr><th class="t"></th>'+DAYS.slice(0,nd).map(d=>`<th>${d}</th>`).join('')+'</tr></thead><tbody>';
+  for(let m=lo;m<hi;m+=30){
+    t+=`<tr class="${m%60===0?'hr':''}"><td class="t">${m%60===0?fm(m):''}</td>`;
+    for(let d=0;d<nd;d++){
+      const busy=[],free=[];
+      all.forEach(f=>(f.events.some(e=>e.day===d&&tm(e.start)<m+30&&tm(e.end)>m)?busy:free).push(f));
+      let inner='',cls='';
+      const chip=f=>`<span class="chip" style="background:${esc(f.color)}" title="${esc(f.name)}">${esc(f.name)}</span>`;
+      if(mode==='busy')inner=busy.map(chip).join('');
+      else if(!busy.length){cls='allfree';inner='<span class="all">모두 가능</span>'}
+      else inner=free.map(chip).join('');
+      t+=`<td class="${cls}"><div class="chips">${inner}</div></td>`;
+    }
+    t+='</tr>';
+  }
+  wrap.innerHTML=t+'</tbody></table>';
+  $('#legend').textContent=mode==='busy'?`선택한 ${all.length}명 중, 각 칸에는 그 시간에 일정이 있는 사람이 표시됩니다.`:`선택한 ${all.length}명 중, 각 칸에는 그 시간에 가능한 사람이 표시되고 전원이 비는 칸은 초록색입니다.`;
+}
+$('#mode').onclick=e=>{const b=e.target.closest('button');if(!b)return;mode=b.dataset.m;[...$('#mode').children].forEach(x=>x.classList.toggle('on',x===b));renderGrid()};
+$('#wk').onchange=renderGrid;$('#full').onchange=renderGrid;
+
+/* ---------- 설정 탭 ---------- */
+function renderUploads(){
+  const box=$('#ulist');box.innerHTML='';
+  files.filter(f=>!okPerson(f)).forEach(f=>{
+    box.append(h('div',{class:'item'},
+      h('div',{class:'row'},h('span',{class:'dot',style:'background:'+f.color}),h('b',{style:'flex:1;overflow:hidden;text-overflow:ellipsis'},f.name),
+        f.status==='error'&&f.file?h('button',{onclick:()=>analyze(f)},'다시 시도'):null,
+        f.status==='error'?h('button',{class:'x',onclick:()=>{files=files.filter(x=>x!==f);render()}},'✕'):null),
+      h('div',{class:'mute'+(f.status==='error'?' err':'')},f.status==='reading'?'Claude가 시간표를 읽는 중…':f.error)));
+  });
+}
+function renderPeople(){
+  const box=$('#plist');box.innerHTML='';
+  const ppl=ready().sort(byTs);
+  $('#pcount').textContent=ppl.length?`(${ppl.length}명)`:'';
+  if(!ppl.length){box.append(h('div',{class:'empty'},'아직 등록된 사람이 없습니다.'));return}
+  ppl.forEach(f=>{
+    const name=h('input',{type:'text',value:f.name,title:'이름 변경'});
+    name.onchange=()=>{f.name=name.value.trim()||f.name;name.value=f.name;people.save();renderSelector();renderGrid();renderGroups()};
+    const del=h('button',{class:'danger'},'삭제');
+    armDelete(del,'삭제',()=>{
+      files=files.filter(x=>x!==f);
+      groups.forEach(g=>{g.members=g.members.filter(id=>id!==f.id)});
+      people.save();grp.save();render();
+    });
+    const el=h('div',{class:'item'},
+      h('div',{class:'row'},h('span',{class:'dot',style:'background:'+f.color}),name,
+        h('span',{class:'mute'},`${f.events.length}개`),
+        h('button',{class:'x',title:'일정 보기/수정',onclick:()=>{f.open=!f.open;renderPeople()}},f.open?'▲':'▼'),del));
+    if(f.open){
+      const evs=h('div',{class:'evs'});
+      f.events.forEach((e,i)=>{
+        const sel=h('select',null,DAYS.map((d,k)=>h('option',{value:k,selected:k===e.day},d)));
+        const t1=h('input',{type:'time',value:e.start}),t2=h('input',{type:'time',value:e.end});
+        const lab=h('input',{class:'lab',type:'text',placeholder:'내용(선택)',value:e.label});
+        const x=h('button',{title:'삭제',onclick:()=>{f.events.splice(i,1);people.save();renderPeople();renderGrid()}},'✕');
+        const upd=()=>{people.save();renderGrid()};
+        sel.onchange=()=>{e.day=+sel.value;upd()};
+        t1.onchange=()=>{e.start=t1.value||e.start;upd()};
+        t2.onchange=()=>{e.end=t2.value||e.end;upd()};
+        lab.onchange=()=>{e.label=lab.value;upd()};
+        evs.append(h('div',{class:'ev'},sel,t1,t2,lab,x));
+      });
+      evs.append(h('button',{onclick:()=>{f.events.push({day:0,start:'09:00',end:'10:00',label:''});people.save();renderPeople()}},'+ 일정 추가'));
+      el.append(evs);
+    }
+    box.append(el);
+  });
+}
+const gOpen=new Set();
+const koSort=(a,b)=>a.name.localeCompare(b.name,'ko');
+function renderGroups(){
+  const box=$('#glist');box.innerHTML='';
+  const ppl=ready().sort(koSort);
+  if(!groups.length){box.append(h('div',{class:'mute'},'그룹을 만들면 조회 탭에서 한 번에 선택할 수 있어요.'));return}
+  groups.slice().sort(byTs).forEach(g=>{
+    const name=h('input',{type:'text',value:g.name,title:'그룹 이름 변경'});
+    name.onchange=()=>{g.name=name.value.trim()||g.name;name.value=g.name;grp.save();renderSelector()};
+    const del=h('button',{class:'danger'},'삭제');
+    armDelete(del,'삭제',()=>{groups=groups.filter(x=>x!==g);gOpen.delete(g.id);grp.save();render()});
+    const cnt=h('span',{class:'mute'},`${groupMembers(g).length}명`);
+    const open=gOpen.has(g.id);
+    const tog=h('button',{class:'x',title:open?'접기':'펼치기',onclick:()=>{open?gOpen.delete(g.id):gOpen.add(g.id);renderGroups()}},open?'▲ 접기':'▼ 펼치기');
+    const item=h('div',{class:'item'},h('div',{class:'row'},name,tog,cnt,del));
+    if(open){
+      const setMembers=ids=>{g.members=ids;cnt.textContent=`${groupMembers(g).length}명`;grp.save();renderSelector()};
+      const list=h('div',{class:'mlist'});
+      if(!ppl.length)list.append(h('div',{class:'mute'},'먼저 명단을 등록하세요.'));
+      else{
+        const boxes=[];
+        list.append(h('div',{class:'mh'},h('span',null,'이름 (가나다순)'),h('span',null,
+          h('a',{onclick:()=>{boxes.forEach(c=>c.checked=true);setMembers(ppl.map(f=>f.id))}},'전체 선택'),' · ',
+          h('a',{onclick:()=>{boxes.forEach(c=>c.checked=false);setMembers([])}},'전체 해제'))));
+        ppl.forEach(f=>{
+          const cb=h('input',{type:'checkbox',checked:g.members.includes(f.id)});
+          cb.onchange=()=>setMembers(cb.checked?g.members.filter(id=>id!==f.id).concat(f.id):g.members.filter(id=>id!==f.id));
+          boxes.push(cb);
+          list.append(h('label',{class:'mi'},cb,h('span',{class:'dot',style:'background:'+f.color}),f.name));
+        });
+      }
+      item.append(list);
+    }
+    box.append(item);
+  });
+}
+$('#gadd').onclick=()=>{
+  const inp=$('#gname');const name=inp.value.trim()||`새 그룹 ${groups.length+1}`;
+  const ng={id:newId(),ts:Date.now(),name,members:[]};gOpen.add(ng.id);groups.push(ng);inp.value='';grp.save();render();
+};
+$('#gname').onkeydown=e=>{if(e.key==='Enter')$('#gadd').click()};
+
+/* ---------- 전체 렌더 ---------- */
+function render(){
+  [...$('#tabs').children].forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+  $('#pv').hidden=tab!=='view';$('#ps').hidden=tab!=='manage';
+  if(tab==='view'){renderSelector();renderGrid()}
+  else{renderUploads();renderPeople();renderGroups()}
+}
+render();
+</script>
+</body>
+</html>
